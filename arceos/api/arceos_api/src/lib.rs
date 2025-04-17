@@ -21,6 +21,7 @@ mod macros;
 mod imp;
 
 pub use axerrno::{AxError, AxResult};
+use imp::ax_random;
 
 /// Platform-specific constants and parameters.
 pub mod config {
@@ -372,6 +373,14 @@ pub mod display {
 pub mod io {
     define_api_type! {
         pub type AxPollState;
+    }
+}
+
+/// misc
+pub mod misc {
+    define_api! {
+        /// gen 128bits random
+        pub fn ax_random() -> u128;
     }
 }
 

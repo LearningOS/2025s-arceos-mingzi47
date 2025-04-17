@@ -64,21 +64,22 @@ pub mod console {
 
     /// Write a slice of bytes to the console.
     pub fn write_bytes(bytes: &[u8]) {
-        "\u{1B}[34m"
-            .as_bytes()
-            .iter()
-            .for_each(|c| {
-                putchar(*c);
-            });
+        //  影响check
+        // "\u{1B}[34m"
+        //     .as_bytes()
+        //     .iter()
+        //     .for_each(|c| {
+        //         putchar(*c);
+        //     });
         for c in bytes {
             putchar(*c);
         }
-        "\u{1B}"
-            .as_bytes()
-            .iter()
-            .for_each(|c| {
-                putchar(*c);
-            });
+        // "\u{1B}"
+        //     .as_bytes()
+        //     .iter()
+        //     .for_each(|c| {
+        //         putchar(*c);
+        //     });
     }
 }
 
