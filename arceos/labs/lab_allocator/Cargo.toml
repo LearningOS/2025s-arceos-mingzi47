@@ -7,4 +7,6 @@ edition = "2021"
 default = []
 
 [dependencies]
-allocator = { git = "https://github.com/arceos-org/allocator.git", tag ="v0.1.0", features = ["bitmap"] }
+rlsf = { version = "0.2" }
+allocator = { git = "https://github.com/arceos-org/allocator.git", tag ="v0.1.0", features = ["tlsf"] }
+axlog = { workspace = true }
