@@ -27,6 +27,8 @@ const CMD_TABLE: &[(&str, CmdHandler)] = &[
     ("pwd", do_pwd),
     ("rm", do_rm),
     ("uname", do_uname),
+    ("rename", do_rename),
+    ("mv", do_mv),
 ];
 
 fn file_type_to_char(ty: FileType) -> char {
@@ -270,6 +272,41 @@ fn do_help(_args: &str) {
 fn do_exit(_args: &str) {
     println!("Bye~");
     std::process::exit(0);
+}
+
+fn do_rename(args: &str) {
+    if args.is_empty() {
+        print_err!("rename", "missing operand");
+        return;
+    }
+
+    let (old_name, new_name) = split_whitespace(args);
+    if new_name.contains(char::is_whitespace) {
+        print_err!("rename", "too args");
+    }
+    
+    
+    if let Err(err) = fs::rename(old_name, new_name) {
+        print_err!("rename", err);
+    }
+}
+
+fn do_mv(args: &str) {
+    if args.is_empty() {
+        print_err!("mv", "missing operand");
+        return;
+    }
+
+    let (old_name, new_name) = split_whitespace(args);
+    if new_name.contains(char::is_whitespace) {
+        print_err!("mv", "too args");
+    }
+
+    let new_name = new_name.trim_start_matches(".");
+
+    if let Err(err) = fs::rename(old_name, new_name) {
+        print_err!("mv", err);
+    }
 }
 
 pub fn run_cmd(line: &[u8]) {
