@@ -67,6 +67,14 @@ impl DirNode {
         children.remove(name);
         Ok(())
     }
+
+    pub fn rename_node(&self, old_name: &str, new_name: &str) -> VfsResult {
+        let mut children = self.children.write();
+        let node = children.remove(old_name).unwrap();
+
+        children.insert(new_name.into(), node);
+        Ok(())
+    }
 }
 
 impl VfsNodeOps for DirNode {
@@ -162,6 +170,34 @@ impl VfsNodeOps for DirNode {
             Err(VfsError::InvalidInput) // remove '.' or '..
         } else {
             self.remove_node(name)
+        }
+    }
+
+    fn rename(&self, old_name: &str, new_name: &str) -> VfsResult {
+        let mut tmp = old_name;
+        let old_name = loop {
+            let (name, rest) = split_path(tmp);
+            if rest.is_none() {
+                break name;
+            }
+            tmp = rest.unwrap();
+        };
+
+        tmp = new_name;
+        let new_name = loop {
+            let (name, rest) = split_path(tmp);
+            if rest.is_none() {
+                break name;
+            }
+
+            tmp = rest.unwrap();
+        };
+
+        log::debug!("rename at ramfs: old: {}, new : {}", old_name, new_name);
+        if old_name.is_empty() || new_name.is_empty() {
+            Err(VfsError::InvalidInput)
+        } else {
+            self.rename_node(old_name, new_name)
         }
     }
 
