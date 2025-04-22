@@ -7,6 +7,6 @@ edition = "2021"
 default = []
 
 [dependencies]
-rlsf = { version = "0.2" }
+slab_allocator = { path = "../slab_allocator" }
 allocator = { git = "https://github.com/arceos-org/allocator.git", tag ="v0.1.0", features = ["tlsf"] }
 axlog = { workspace = true }
