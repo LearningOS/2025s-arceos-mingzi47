@@ -1,6 +1,9 @@
+use core::fmt:: Debug;
+
 use super::SET_SIZE;
 use alloc::alloc::{AllocError, Layout};
 
+#[derive(Debug)]
 pub struct Slab<const BLK_SIZE: usize> {
     free_block_list: FreeBlockList<BLK_SIZE>,
     total_blocks: usize,
@@ -62,6 +65,7 @@ impl<const BLK_SIZE: usize> Slab<BLK_SIZE> {
     }
 }
 
+#[derive(Debug)]
 struct FreeBlockList<const BLK_SIZE: usize> {
     len: usize,
     head: Option<&'static mut FreeBlock>,
@@ -109,6 +113,7 @@ impl<const BLK_SIZE: usize> FreeBlockList<BLK_SIZE> {
     }
 }
 
+#[derive(Debug)]
 struct FreeBlock {
     next: Option<&'static mut FreeBlock>,
 }
