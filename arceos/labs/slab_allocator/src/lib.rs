@@ -13,11 +13,13 @@ extern crate alloc;
 extern crate buddy_system_allocator;
 
 use alloc::alloc::{AllocError, Layout};
-use core::ptr::NonNull;
+use heap::BigHeap;
+// use core::ptr::NonNull;
 
 #[cfg(test)]
 mod tests;
 
+mod heap;
 mod slab;
 use slab::Slab;
 
@@ -25,38 +27,40 @@ use axlog::debug;
 
 const SET_SIZE: usize = 1;
 const MIN_HEAP_SIZE: usize = 0x8000;
+const PAGE_SIZE: usize = 4096;
 
 enum HeapAllocator {
-    Slab64Bytes,
+    Slab32Bytes,
+    // Slab64Bytes,
     Slab96Bytes,
-    Slab128Bytes,
     Slab192Bytes,
-    Slab256Bytes,
     Slab384Bytes,
     Slab512Bytes,
-    Slab1024Bytes,
     Slab2048Bytes,
-    Slab4096Bytes,
     Slab8192Bytes,
-    BuddyAllocator,
+    Slab32768Bytes,
+    Slab131072Bytes,
+    Slab524288Bytes,
+    BigHeap,
 }
 
 /// A fixed size heap backed by multiple slabs with blocks of different sizes.
 /// Allocations over 4096 bytes are served by linked list allocator.
 #[derive(Debug)]
 pub struct Heap {
-    slab_64_bytes: Slab<64>,
+    slab_32_bytes: Slab<500>,
+    // slab_64_bytes: Slab<64>,
     slab_96_bytes: Slab<96>,
-    slab_128_bytes: Slab<128>,
     slab_192_bytes: Slab<192>,
-    slab_256_bytes: Slab<256>,
     slab_384_bytes: Slab<384>,
-    slab_512_bytes: Slab<512>,
-    slab_1024_bytes: Slab<1024>,
-    slab_2048_bytes: Slab<2048>,
-    slab_4096_bytes: Slab<4096>,
-    slab_8192_bytes: Slab<8192>,
-    buddy_allocator: buddy_system_allocator::Heap<32>,
+    slab_512_bytes: Slab<884>,
+    slab_2048_bytes: Slab<2420>,
+    slab_8192_bytes: Slab<8564>,
+    slab_32768_bytes: Slab<33140>,
+    slab_131072_bytes: Slab<131444>,
+    slab_524288_bytes: Slab<524660>,
+    // buddy_allocator: buddy_system_allocator::Heap<32>,
+    big_heap: BigHeap,
 }
 
 impl Heap {
@@ -69,7 +73,7 @@ impl Heap {
     /// given address is invalid.
     pub unsafe fn new(heap_start_addr: usize, heap_size: usize) -> Heap {
         assert!(
-            heap_start_addr % 4096 == 0,
+            heap_start_addr % PAGE_SIZE == 0,
             "Start address should be page aligned"
         );
         assert!(
@@ -81,22 +85,23 @@ impl Heap {
             "Heap size should be a multiple of minimum heap size"
         );
         Heap {
-            slab_64_bytes: Slab::<64>::new(0, 0),
+            slab_32_bytes: Slab::<500>::new(0, 0),
+            // slab_64_bytes: Slab::<64>::new(0, 0),
             slab_96_bytes: Slab::<96>::new(0, 0),
-            slab_128_bytes: Slab::<128>::new(0, 0),
             slab_192_bytes: Slab::<192>::new(0, 0),
-            slab_256_bytes: Slab::<256>::new(0, 0),
             slab_384_bytes: Slab::<384>::new(0, 0),
-            slab_512_bytes: Slab::<512>::new(0, 0),
-            slab_1024_bytes: Slab::<1024>::new(0, 0),
-            slab_2048_bytes: Slab::<2048>::new(0, 0),
-            slab_4096_bytes: Slab::<4096>::new(0, 0),
-            slab_8192_bytes: Slab::<8192>::new(0, 0),
-            buddy_allocator: {
-                let mut buddy = buddy_system_allocator::Heap::<32>::new();
-                buddy.init(heap_start_addr, heap_size);
-                buddy
-            },
+            slab_512_bytes: Slab::<884>::new(0, 0),
+            slab_2048_bytes: Slab::<2420>::new(0, 0),
+            slab_8192_bytes: Slab::<8564>::new(0, 0),
+            slab_32768_bytes: Slab::<33140>::new(0, 0),
+            slab_131072_bytes: Slab::<131444>::new(0, 0),
+            slab_524288_bytes: Slab::<524660>::new(0, 0),
+            // buddy_allocator: {
+            //     let mut buddy = buddy_system_allocator::Heap::<32>::new();
+            //     buddy.init(heap_start_addr, heap_size);
+            //     buddy
+            // },
+            big_heap: BigHeap::new(heap_start_addr, heap_size),
         }
     }
 
@@ -109,15 +114,16 @@ impl Heap {
     /// given address is invalid.
     pub unsafe fn add_memory(&mut self, heap_start_addr: usize, heap_size: usize) {
         assert!(
-            heap_start_addr % 4096 == 0,
+            heap_start_addr % PAGE_SIZE == 0,
             "Start address should be page aligned"
         );
         assert!(
-            heap_size % 4096 == 0,
+            heap_size % PAGE_SIZE == 0,
             "Add Heap size should be a multiple of page size"
         );
-        self.buddy_allocator
-            .add_to_heap(heap_start_addr, heap_start_addr + heap_size);
+        self.big_heap
+            .add_to_heap(heap_start_addr, heap_size);
+        // self.buddy_allocator.alloc(layout)
     }
 
     /// Adds memory to the heap. The start address must be valid
@@ -129,69 +135,71 @@ impl Heap {
     /// This function is unsafe because it can cause undefined behavior if the
     /// given address is invalid.
     unsafe fn _grow(&mut self, mem_start_addr: usize, mem_size: usize, slab: HeapAllocator) {
+        debug!("mem_start_addr {}", mem_start_addr);
         match slab {
-            HeapAllocator::Slab64Bytes => self.slab_64_bytes.grow(mem_start_addr, mem_size),
+            HeapAllocator::Slab32Bytes => self.slab_32_bytes.grow(mem_start_addr, mem_size),
+            // HeapAllocator::Slab64Bytes => self.slab_64_bytes.grow(mem_start_addr, mem_size),
             HeapAllocator::Slab96Bytes => self.slab_96_bytes.grow(mem_start_addr, mem_size),
-            HeapAllocator::Slab128Bytes => self.slab_128_bytes.grow(mem_start_addr, mem_size),
             HeapAllocator::Slab192Bytes => self.slab_192_bytes.grow(mem_start_addr, mem_size),
-            HeapAllocator::Slab256Bytes => self.slab_256_bytes.grow(mem_start_addr, mem_size),
             HeapAllocator::Slab384Bytes => self.slab_384_bytes.grow(mem_start_addr, mem_size),
             HeapAllocator::Slab512Bytes => self.slab_512_bytes.grow(mem_start_addr, mem_size),
-            HeapAllocator::Slab1024Bytes => self.slab_1024_bytes.grow(mem_start_addr, mem_size),
             HeapAllocator::Slab2048Bytes => self.slab_2048_bytes.grow(mem_start_addr, mem_size),
-            HeapAllocator::Slab4096Bytes => self.slab_4096_bytes.grow(mem_start_addr, mem_size),
             HeapAllocator::Slab8192Bytes => self.slab_8192_bytes.grow(mem_start_addr, mem_size),
-            HeapAllocator::BuddyAllocator => self
-                .buddy_allocator
-                .add_to_heap(mem_start_addr, mem_start_addr + mem_size),
+            HeapAllocator::Slab32768Bytes => self.slab_32768_bytes.grow(mem_start_addr, mem_size),
+            HeapAllocator::Slab131072Bytes => self.slab_131072_bytes.grow(mem_start_addr, mem_size),
+            HeapAllocator::Slab524288Bytes => self.slab_524288_bytes.grow(mem_start_addr, mem_size),
+            HeapAllocator::BigHeap => self
+                .big_heap
+                .add_to_heap(mem_start_addr, mem_size),
         }
     }
 
     /// Allocates a chunk of the given size with the given alignment. Returns a pointer to the
     /// beginning of that chunk if it was successful. Else it returns `Err`.
     /// This function finds the slab of lowest size which can still accommodate the given chunk.
-    /// The runtime is in `O(1)` for chunks of size <= 4096, and `O(n)` when chunk size is > 4096,
+    /// The runtime is in `O(1)` for chunks of size <= 4096, and `O(n)` when chunk size is >
+    /// PAGE_SIZE,
     pub fn allocate(&mut self, layout: Layout) -> Result<usize, AllocError> {
-        debug!("heap : {:#?}", self);
+        // debug!("heap : {:#?}", self);
         match Heap::layout_to_allocator(&layout) {
-            HeapAllocator::Slab64Bytes => self
-                .slab_64_bytes
-                .allocate(layout, &mut self.buddy_allocator),
+            HeapAllocator::Slab32Bytes => self
+                .slab_32_bytes
+                .allocate(layout, &mut self.big_heap),
+            // HeapAllocator::Slab64Bytes => self
+            //     .slab_64_bytes
+            //     .allocate(layout, &mut self.big_heap),
             HeapAllocator::Slab96Bytes => self
                 .slab_96_bytes
-                .allocate(layout, &mut self.buddy_allocator),
-            HeapAllocator::Slab128Bytes => self
-                .slab_128_bytes
-                .allocate(layout, &mut self.buddy_allocator),
+                .allocate(layout, &mut self.big_heap),
             HeapAllocator::Slab192Bytes => self
                 .slab_192_bytes
-                .allocate(layout, &mut self.buddy_allocator),
-            HeapAllocator::Slab256Bytes => self
-                .slab_256_bytes
-                .allocate(layout, &mut self.buddy_allocator),
+                .allocate(layout, &mut self.big_heap),
             HeapAllocator::Slab384Bytes => self
                 .slab_384_bytes
-                .allocate(layout, &mut self.buddy_allocator),
+                .allocate(layout, &mut self.big_heap),
             HeapAllocator::Slab512Bytes => self
                 .slab_512_bytes
-                .allocate(layout, &mut self.buddy_allocator),
-            HeapAllocator::Slab1024Bytes => self
-                .slab_1024_bytes
-                .allocate(layout, &mut self.buddy_allocator),
+                .allocate(layout, &mut self.big_heap),
             HeapAllocator::Slab2048Bytes => self
                 .slab_2048_bytes
-                .allocate(layout, &mut self.buddy_allocator),
-            HeapAllocator::Slab4096Bytes => self
-                .slab_4096_bytes
-                .allocate(layout, &mut self.buddy_allocator),
+                .allocate(layout, &mut self.big_heap),
             HeapAllocator::Slab8192Bytes => self
                 .slab_8192_bytes
-                .allocate(layout, &mut self.buddy_allocator),
-            HeapAllocator::BuddyAllocator => self
-                .buddy_allocator
-                .alloc(layout)
-                .map(|ptr| ptr.as_ptr() as usize)
-                .map_err(|_| AllocError),
+                .allocate(layout, &mut self.big_heap),
+            HeapAllocator::Slab32768Bytes => self
+                .slab_32768_bytes
+                .allocate(layout, &mut self.big_heap),
+            HeapAllocator::Slab131072Bytes => self
+                .slab_131072_bytes
+                .allocate(layout, &mut self.big_heap),
+            HeapAllocator::Slab524288Bytes => self
+                .slab_524288_bytes
+                .allocate(layout, &mut self.big_heap),
+            HeapAllocator::BigHeap => self
+                .big_heap
+                .alloc(layout, 1)
+                .map(|ptr| ptr)
+                .map_err(|_| AllocError)
         }
     }
 
@@ -208,20 +216,20 @@ impl Heap {
     /// given address is invalid.
     pub unsafe fn deallocate(&mut self, ptr: usize, layout: Layout) {
         match Heap::layout_to_allocator(&layout) {
-            HeapAllocator::Slab64Bytes => self.slab_64_bytes.deallocate(ptr),
+            HeapAllocator::Slab32Bytes => self.slab_32_bytes.deallocate(ptr),
+            // HeapAllocator::Slab64Bytes => self.slab_64_bytes.deallocate(ptr),
             HeapAllocator::Slab96Bytes => self.slab_96_bytes.deallocate(ptr),
-            HeapAllocator::Slab128Bytes => self.slab_128_bytes.deallocate(ptr),
             HeapAllocator::Slab192Bytes => self.slab_192_bytes.deallocate(ptr),
-            HeapAllocator::Slab256Bytes => self.slab_256_bytes.deallocate(ptr),
             HeapAllocator::Slab384Bytes => self.slab_384_bytes.deallocate(ptr),
             HeapAllocator::Slab512Bytes => self.slab_512_bytes.deallocate(ptr),
-            HeapAllocator::Slab1024Bytes => self.slab_1024_bytes.deallocate(ptr),
             HeapAllocator::Slab2048Bytes => self.slab_2048_bytes.deallocate(ptr),
-            HeapAllocator::Slab4096Bytes => self.slab_4096_bytes.deallocate(ptr),
             HeapAllocator::Slab8192Bytes => self.slab_8192_bytes.deallocate(ptr),
-            HeapAllocator::BuddyAllocator => self
-                .buddy_allocator
-                .dealloc(NonNull::new(ptr as *mut u8).unwrap(), layout),
+            HeapAllocator::Slab32768Bytes => self.slab_32768_bytes.deallocate(ptr),
+            HeapAllocator::Slab131072Bytes => self.slab_131072_bytes.deallocate(ptr),
+            HeapAllocator::Slab524288Bytes => self.slab_524288_bytes.deallocate(ptr),
+            HeapAllocator::BigHeap => self
+                .big_heap
+                .dealloc(ptr, layout),
         }
     }
 
@@ -229,80 +237,81 @@ impl Heap {
     /// allocation created with the specified `layout`.
     pub fn usable_size(&self, layout: Layout) -> (usize, usize) {
         match Heap::layout_to_allocator(&layout) {
-            HeapAllocator::Slab64Bytes => (layout.size(), 64),
+            HeapAllocator::Slab32Bytes => (layout.size(), 500),
+            // HeapAllocator::Slab64Bytes => (layout.size(), 64),
             HeapAllocator::Slab96Bytes => (layout.size(), 96),
-            HeapAllocator::Slab128Bytes => (layout.size(), 128),
             HeapAllocator::Slab192Bytes => (layout.size(), 192),
-            HeapAllocator::Slab256Bytes => (layout.size(), 256),
             HeapAllocator::Slab384Bytes => (layout.size(), 384),
-            HeapAllocator::Slab512Bytes => (layout.size(), 512),
-            HeapAllocator::Slab1024Bytes => (layout.size(), 1024),
-            HeapAllocator::Slab2048Bytes => (layout.size(), 2048),
-            HeapAllocator::Slab4096Bytes => (layout.size(), 4096),
-            HeapAllocator::Slab8192Bytes => (layout.size(), 8192),
-            HeapAllocator::BuddyAllocator => (layout.size(), layout.size()),
+            HeapAllocator::Slab512Bytes => (layout.size(), 884),
+            HeapAllocator::Slab2048Bytes => (layout.size(), 2420),
+            HeapAllocator::Slab8192Bytes => (layout.size(), 8564),
+            HeapAllocator::Slab32768Bytes => (layout.size(), 33140),
+            HeapAllocator::Slab131072Bytes => (layout.size(), 131444),
+            HeapAllocator::Slab524288Bytes => (layout.size(), 524660),
+            HeapAllocator::BigHeap => (layout.size(), layout.size()),
         }
     }
 
     /// Finds allocator to use based on layout size and alignment
     fn layout_to_allocator(layout: &Layout) -> HeapAllocator {
-        if layout.size() <= 64 && layout.align() <= 64 {
-            HeapAllocator::Slab64Bytes
-        } else if layout.size() <= 96 && layout.align() <= 96 {
+        // if layout.size() <= 64 && layout.align() <= 64 {
+        //     HeapAllocator::Slab64Bytes
+        // } else 
+        if layout.size() == 96 {
             HeapAllocator::Slab96Bytes
-        } else if layout.size() <= 128 && layout.align() <= 128 {
-            HeapAllocator::Slab128Bytes
-        } else if layout.size() <= 192 && layout.align() <= 192 {
+        } else if layout.size() == 192 {
             HeapAllocator::Slab192Bytes
-        } else if layout.size() <= 256 && layout.align() <= 256 {
-            HeapAllocator::Slab256Bytes
-        } else if layout.size() <= 384 && layout.align() <= 384 {
+        } else if layout.size() == 384 {
             HeapAllocator::Slab384Bytes
-        } else if layout.size() <= 512 && layout.align() <= 512 {
+        } else if layout.size() <= 500 && layout.size() >= 32 {
+            HeapAllocator::Slab32Bytes
+        } else if layout.size() <= 884 && layout.align() <= 512 {
             HeapAllocator::Slab512Bytes
-        } else if layout.size() <= 1024 && layout.align() <= 1024 {
-            HeapAllocator::Slab1024Bytes
-        } else if layout.size() <= 2048 && layout.align() <= 2048 {
+        } else if layout.size() <= 2420 && layout.size() >= 2048 {
             HeapAllocator::Slab2048Bytes
-        } else if layout.size() <= 4096 && layout.align() <= 4096 {
-            HeapAllocator::Slab4096Bytes
-        } else if layout.size() <= 8192 && layout.align() <= 8192 {
+        } else if layout.size() <= 8564 && layout.size() >= 8192 {
             HeapAllocator::Slab8192Bytes
+        } else if layout.size() <= 33140 && layout.size() >= 32768 {
+            HeapAllocator::Slab32768Bytes
+        } else if layout.size() <= 131444 && layout.size() >= 131072 {
+            HeapAllocator::Slab131072Bytes
+        } else if layout.size() <= 524660 && layout.size() >= 524288 {
+            HeapAllocator::Slab524288Bytes
         } else {
-            HeapAllocator::BuddyAllocator
+            HeapAllocator::BigHeap
         }
     }
 
     /// Returns total memory size in bytes of the heap.
     pub fn total_bytes(&self) -> usize {
-        self.slab_64_bytes.total_blocks() * 64
+        // self.slab_64_bytes.total_blocks() * 64
+             self.slab_32_bytes.total_blocks() * 500
             + self.slab_96_bytes.total_blocks() * 96
-            + self.slab_128_bytes.total_blocks() * 128
             + self.slab_192_bytes.total_blocks() * 192
-            + self.slab_256_bytes.total_blocks() * 256
             + self.slab_384_bytes.total_blocks() * 384
-            + self.slab_512_bytes.total_blocks() * 512
-            + self.slab_1024_bytes.total_blocks() * 1024
-            + self.slab_2048_bytes.total_blocks() * 2048
-            + self.slab_4096_bytes.total_blocks() * 4096
-            + self.slab_8192_bytes.total_blocks() * 8192
-            + self.buddy_allocator.stats_total_bytes()
+            + self.slab_512_bytes.total_blocks() * 884
+            + self.slab_2048_bytes.total_blocks() * 2420
+            + self.slab_8192_bytes.total_blocks() * 8564
+            + self.slab_32768_bytes.total_blocks() * 33140
+            + self.slab_131072_bytes.total_blocks() * 131444
+            + self.slab_524288_bytes.total_blocks() * 524660
+            + self.big_heap.stats_total_bytes()
     }
 
     /// Returns allocated memory size in bytes.
     pub fn used_bytes(&self) -> usize {
-        self.slab_64_bytes.used_blocks() * 64
-            + self.slab_96_bytes.used_blocks() * 96
-            + self.slab_128_bytes.used_blocks() * 128
+        // self.slab_64_bytes.used_blocks() * 64
+            self.slab_96_bytes.used_blocks() * 96
+            + self.slab_32_bytes.used_blocks() * 500
             + self.slab_192_bytes.used_blocks() * 192
-            + self.slab_256_bytes.used_blocks() * 256
             + self.slab_384_bytes.used_blocks() * 384
-            + self.slab_512_bytes.used_blocks() * 512
-            + self.slab_1024_bytes.used_blocks() * 1024
-            + self.slab_2048_bytes.used_blocks() * 2048
-            + self.slab_4096_bytes.used_blocks() * 4096
-            + self.slab_8192_bytes.used_blocks() * 8192
-            + self.buddy_allocator.stats_alloc_actual()
+            + self.slab_512_bytes.used_blocks() * 884
+            + self.slab_2048_bytes.used_blocks() * 2420
+            + self.slab_8192_bytes.used_blocks() * 8564
+            + self.slab_32768_bytes.used_blocks() * 33140
+            + self.slab_131072_bytes.used_blocks() * 131444
+            + self.slab_524288_bytes.used_blocks() * 524660
+            + self.big_heap.stats_alloc_actual()
     }
 
     /// Returns available memory size in bytes.
