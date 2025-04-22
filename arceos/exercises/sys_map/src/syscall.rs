@@ -1,13 +1,16 @@
 #![allow(dead_code)]
 
 use core::ffi::{c_void, c_char, c_int};
+use std::println;
 use axhal::arch::TrapFrame;
+use axhal::mem::phys_to_virt;
 use axhal::trap::{register_trap_handler, SYSCALL};
 use axerrno::LinuxError;
 use axtask::current;
 use axtask::TaskExtRef;
 use axhal::paging::MappingFlags;
-use arceos_posix_api as api;
+use arceos_posix_api::{self as api, get_file_like};
+use memory_addr::{va, AddrRange, MemoryAddr, PAGE_SIZE_4K};
 
 const SYS_IOCTL: usize = 29;
 const SYS_OPENAT: usize = 56;
@@ -140,7 +143,72 @@ fn sys_mmap(
     fd: i32,
     _offset: isize,
 ) -> isize {
-    unimplemented!("no sys_mmap!");
+    let uspace = current().task_ext().aspace.clone();
+    let mut size: usize = (length * std::mem::size_of::<usize>() + PAGE_SIZE_4K + 1) / PAGE_SIZE_4K * PAGE_SIZE_4K;
+    let vaddr = if addr.is_null() {
+        let base = uspace.lock().base();
+        let end = uspace.lock().end();
+        let limit = AddrRange::new(va!(PAGE_SIZE_4K), end);
+        debug!("base : {:#?}, end: {:#?}", base, end);
+
+        uspace.lock().find_free_area(base, size, limit).unwrap()
+    } else {
+        va!(addr as usize)
+    };
+
+    debug!("vaddr : {:#?}", vaddr);
+
+    let flags = MappingFlags::from_bits(flags as usize).unwrap()
+        |MappingFlags::USER
+        |MappingFlags::WRITE
+        |MappingFlags::READ
+    ;
+    debug!("flags = {:#?}", flags);
+    if let Err(e) = uspace.lock().map_alloc(vaddr, size, flags, true) {
+        return e.code() as isize;
+    }
+
+    let mut buf = [0u8; PAGE_SIZE_4K];
+    get_file_like(fd).inspect(|file| {
+        let vstart = vaddr;
+        loop {
+            if let Ok(read_size) = file.read(&mut buf) {
+                if read_size == 0 {
+                    break;
+                }
+
+                let (paddr, _, _) = uspace
+                .lock()
+                .page_table()
+                .query(vstart)
+                .unwrap_or_else(|_| {
+                    panic!("mapping failed segment: {:#x}", vstart)
+                });
+
+                debug!("read size : {}", read_size);
+                debug!("read buf : {:#?}", &buf[..read_size]);
+                debug!("vstart {:#?}, paddr : {:#?}", vstart, paddr);
+                unsafe {
+                    core::ptr::copy_nonoverlapping(
+                        buf.as_ptr(),
+                        phys_to_virt(paddr).as_mut_ptr(),
+                        PAGE_SIZE_4K,
+                    );
+                }
+                debug!("vstart {:#?}", vstart);
+
+                vstart.add(PAGE_SIZE_4K);
+                size -= PAGE_SIZE_4K;
+                if size <= 0 {
+                    break;
+                }
+            }
+        }
+    });
+
+    debug!("vaddr {:#?}", vaddr);
+
+    vaddr.as_mut_ptr() as isize
 }
 
 fn sys_openat(dfd: c_int, fname: *const c_char, flags: c_int, mode: api::ctypes::mode_t) -> isize {
