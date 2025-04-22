@@ -46,7 +46,7 @@ impl BaseAllocator for LabByteAllocator {
 
 impl ByteAllocator for LabByteAllocator {
     fn alloc(&mut self, layout: Layout) -> AllocResult<NonNull<u8>> {
-        debug!("alloc : {}", layout.size());
+        debug!("alloc : {}, algin : {}", layout.size(), layout.align());
         self.inner_mut()
             .allocate(layout)
             .map(|addr| unsafe { NonNull::new_unchecked(addr as *mut u8) })
