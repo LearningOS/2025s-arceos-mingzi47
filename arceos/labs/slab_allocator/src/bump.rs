@@ -16,7 +16,7 @@ const HEAP_MAX_SIZE: usize = 131661824;
 ///
 
 #[derive(Debug)]
-pub struct BigHeap {
+pub struct BumpAllocator {
     start: usize,
     end: usize,
     used: usize,
@@ -27,7 +27,7 @@ pub struct BigHeap {
 }
 
 
-impl BigHeap {
+impl BumpAllocator {
     pub fn new(start: usize, size: usize) -> Self {
         info!("Big Heap new : start : {}, size : {}", start, size);
         Self {

@@ -1,6 +1,6 @@
 use core::fmt:: Debug;
 
-use crate::heap::BigHeap;
+use crate::bump::BumpAllocator;
 
 use super::SET_SIZE;
 use alloc::alloc::{AllocError, Layout};
@@ -40,14 +40,14 @@ impl<const BLK_SIZE: usize> Slab<BLK_SIZE> {
     pub fn allocate(
         &mut self,
         _layout: Layout,
-        buddy: &mut BigHeap,
+        bump: &mut BumpAllocator,
     ) -> Result<usize, AllocError> {
         match self.free_block_list.pop() {
             Some(block) => Ok(block.addr()),
             None => {
                 let layout =
                     unsafe { Layout::from_size_align_unchecked(SET_SIZE * BLK_SIZE, 4096) };
-                if let Ok(ptr) = buddy.alloc(layout, 0) {
+                if let Ok(ptr) = bump.alloc(layout, 0) {
                     unsafe {
                         self.grow(ptr, SET_SIZE * BLK_SIZE);
                     }

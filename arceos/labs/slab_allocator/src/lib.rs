@@ -13,12 +13,12 @@ extern crate alloc;
 extern crate buddy_system_allocator;
 
 use alloc::alloc::{AllocError, Layout};
-use heap::BigHeap;
+use bump::BumpAllocator;
 
 #[cfg(test)]
 mod tests;
 
-mod heap;
+mod bump;
 mod slab;
 use slab::Slab;
 
@@ -40,7 +40,7 @@ enum HeapAllocator {
     Slab32768Bytes,
     Slab131072Bytes,
     Slab524288Bytes,
-    BigHeap,
+    BumpAllocator,
 }
 
 /// A fixed size heap backed by multiple slabs with blocks of different sizes.
@@ -57,7 +57,7 @@ pub struct Heap {
     slab_32768_bytes: Slab<33140>,
     slab_131072_bytes: Slab<131444>,
     slab_524288_bytes: Slab<524660>,
-    big_heap: BigHeap,
+    bump_allocator: BumpAllocator,
 }
 
 impl Heap {
@@ -92,7 +92,7 @@ impl Heap {
             slab_32768_bytes: Slab::<33140>::new(0, 0),
             slab_131072_bytes: Slab::<131444>::new(0, 0),
             slab_524288_bytes: Slab::<524660>::new(0, 0),
-            big_heap: BigHeap::new(heap_start_addr, heap_size),
+            bump_allocator: BumpAllocator::new(heap_start_addr, heap_size),
         }
     }
 
@@ -112,8 +112,7 @@ impl Heap {
             heap_size % PAGE_SIZE == 0,
             "Add Heap size should be a multiple of page size"
         );
-        self.big_heap.add_to_heap(heap_start_addr, heap_size);
-        // self.buddy_allocator.alloc(layout)
+        self.bump_allocator.add_to_heap(heap_start_addr, heap_size);
     }
 
     /// Adds memory to the heap. The start address must be valid
@@ -137,7 +136,7 @@ impl Heap {
             HeapAllocator::Slab32768Bytes => self.slab_32768_bytes.grow(mem_start_addr, mem_size),
             HeapAllocator::Slab131072Bytes => self.slab_131072_bytes.grow(mem_start_addr, mem_size),
             HeapAllocator::Slab524288Bytes => self.slab_524288_bytes.grow(mem_start_addr, mem_size),
-            HeapAllocator::BigHeap => self.big_heap.add_to_heap(mem_start_addr, mem_size),
+            HeapAllocator::BumpAllocator => self.bump_allocator.add_to_heap(mem_start_addr, mem_size),
         }
     }
 
@@ -149,28 +148,28 @@ impl Heap {
     pub fn allocate(&mut self, layout: Layout) -> Result<usize, AllocError> {
         // debug!("heap : {:#?}", self);
         match Heap::layout_to_allocator(&layout) {
-            HeapAllocator::Slab32Bytes => self.slab_32_bytes.allocate(layout, &mut self.big_heap),
-            HeapAllocator::Slab96Bytes => self.slab_96_bytes.allocate(layout, &mut self.big_heap),
-            HeapAllocator::Slab192Bytes => self.slab_192_bytes.allocate(layout, &mut self.big_heap),
-            HeapAllocator::Slab384Bytes => self.slab_384_bytes.allocate(layout, &mut self.big_heap),
-            HeapAllocator::Slab512Bytes => self.slab_512_bytes.allocate(layout, &mut self.big_heap),
+            HeapAllocator::Slab32Bytes => self.slab_32_bytes.allocate(layout, &mut self.bump_allocator),
+            HeapAllocator::Slab96Bytes => self.slab_96_bytes.allocate(layout, &mut self.bump_allocator),
+            HeapAllocator::Slab192Bytes => self.slab_192_bytes.allocate(layout, &mut self.bump_allocator),
+            HeapAllocator::Slab384Bytes => self.slab_384_bytes.allocate(layout, &mut self.bump_allocator),
+            HeapAllocator::Slab512Bytes => self.slab_512_bytes.allocate(layout, &mut self.bump_allocator),
             HeapAllocator::Slab2048Bytes => {
-                self.slab_2048_bytes.allocate(layout, &mut self.big_heap)
+                self.slab_2048_bytes.allocate(layout, &mut self.bump_allocator)
             }
             HeapAllocator::Slab8192Bytes => {
-                self.slab_8192_bytes.allocate(layout, &mut self.big_heap)
+                self.slab_8192_bytes.allocate(layout, &mut self.bump_allocator)
             }
             HeapAllocator::Slab32768Bytes => {
-                self.slab_32768_bytes.allocate(layout, &mut self.big_heap)
+                self.slab_32768_bytes.allocate(layout, &mut self.bump_allocator)
             }
             HeapAllocator::Slab131072Bytes => {
-                self.slab_131072_bytes.allocate(layout, &mut self.big_heap)
+                self.slab_131072_bytes.allocate(layout, &mut self.bump_allocator)
             }
             HeapAllocator::Slab524288Bytes => {
-                self.slab_524288_bytes.allocate(layout, &mut self.big_heap)
+                self.slab_524288_bytes.allocate(layout, &mut self.bump_allocator)
             }
-            HeapAllocator::BigHeap => self
-                .big_heap
+            HeapAllocator::BumpAllocator => self
+                .bump_allocator
                 .alloc(layout, 1)
                 .map(|ptr| ptr)
                 .map_err(|_| AllocError),
@@ -200,7 +199,7 @@ impl Heap {
             HeapAllocator::Slab32768Bytes => self.slab_32768_bytes.deallocate(ptr),
             HeapAllocator::Slab131072Bytes => self.slab_131072_bytes.deallocate(ptr),
             HeapAllocator::Slab524288Bytes => self.slab_524288_bytes.deallocate(ptr),
-            HeapAllocator::BigHeap => self.big_heap.dealloc(ptr, layout),
+            HeapAllocator::BumpAllocator => self.bump_allocator.dealloc(ptr, layout),
         }
     }
 
@@ -218,7 +217,7 @@ impl Heap {
             HeapAllocator::Slab32768Bytes => (layout.size(), 33140),
             HeapAllocator::Slab131072Bytes => (layout.size(), 131444),
             HeapAllocator::Slab524288Bytes => (layout.size(), 524660),
-            HeapAllocator::BigHeap => (layout.size(), layout.size()),
+            HeapAllocator::BumpAllocator => (layout.size(), layout.size()),
         }
     }
 
@@ -235,7 +234,7 @@ impl Heap {
                 if check_temp(layout.size() as isize) {
                     HeapAllocator::Slab32Bytes
                 } else {
-                    HeapAllocator::BigHeap
+                    HeapAllocator::BumpAllocator
                 }
             }
         } else if layout.size() <= 884 && layout.size() >= 512 {
@@ -243,7 +242,7 @@ impl Heap {
                 if check_temp(layout.size() as isize) {
                     HeapAllocator::Slab512Bytes
                 } else {
-                    HeapAllocator::BigHeap
+                    HeapAllocator::BumpAllocator
                 }
             }
         } else if layout.size() <= 2420 && layout.size() >= 2048 {
@@ -260,7 +259,7 @@ impl Heap {
         } else if layout.size() <= 524660 && layout.size() >= 524288 {
             HeapAllocator::Slab524288Bytes
         } else {
-            HeapAllocator::BigHeap
+            HeapAllocator::BumpAllocator
         }
     }
 
@@ -287,7 +286,7 @@ impl Heap {
             + self.slab_32768_bytes.total_blocks() * 33140
             + self.slab_131072_bytes.total_blocks() * 131444
             + self.slab_524288_bytes.total_blocks() * 524660
-            + self.big_heap.stats_total_bytes()
+            + self.bump_allocator.stats_total_bytes()
     }
 
     /// Returns allocated memory size in bytes.
@@ -302,7 +301,7 @@ impl Heap {
             + self.slab_32768_bytes.used_blocks() * 33140
             + self.slab_131072_bytes.used_blocks() * 131444
             + self.slab_524288_bytes.used_blocks() * 524660
-            + self.big_heap.stats_alloc_actual()
+            + self.bump_allocator.stats_alloc_actual()
     }
 
     /// Returns available memory size in bytes.
