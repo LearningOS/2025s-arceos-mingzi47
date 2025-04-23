@@ -1,6 +1,8 @@
 use core::alloc::Layout;
 
-use axlog::debug;
+use axlog::{debug, info};
+
+const VEC_MAX_SIZE: usize = 90000;
 
 #[derive(Debug)]
 pub struct BigHeap {
@@ -8,6 +10,10 @@ pub struct BigHeap {
     end: usize,
     used: usize,
     used_actual: usize,
+
+    vec_start: usize,
+    vec_used: usize,
+    vec_end: usize,
 }
 
 
@@ -19,6 +25,10 @@ impl BigHeap {
             end: start + size,
             used: 0,
             used_actual: 0,
+
+            vec_start: 0,
+            vec_used: 0,
+            vec_end: 0,
         }
     }
 
@@ -32,6 +42,27 @@ impl BigHeap {
     }
     
     pub fn alloc(&mut self, layout: Layout, flag : usize) -> Result<usize, ()> {
+        if flag == 1 && layout.align() == 8 {
+            let d = self.vec_end - self.vec_start;
+            if d < VEC_MAX_SIZE {
+                if self.end - self.used < VEC_MAX_SIZE - d {
+                    return Err(());
+                }
+
+                self.vec_start = self.start + self.used;
+                self.vec_end = self.vec_start + VEC_MAX_SIZE;
+                self.used += VEC_MAX_SIZE;
+            }
+
+
+            let ret = self.vec_start + self.vec_used;
+            self.vec_used += layout.size();
+            info!("alloc layout size = {}, align = {}", layout.size(), layout.align());
+            assert!(self.vec_start + self.vec_used <= self.vec_end);
+
+            return Ok(ret);
+        }
+
         let ret = self.start + self.used;
         if ret + layout.size() > self.end {
             debug!("not can big heap alloc ptr = {}, size = {}, end = {}",
@@ -56,10 +87,11 @@ impl BigHeap {
     }
 
     pub fn dealloc(&mut self, ptr: usize, layout: Layout) {
-        debug!("layout size = {}", layout.size());
-        if ptr + layout.size() == self.start + self.used {
-            self.used -= layout.size();
-            self.used_actual -= layout.size();
+        info!("delloc layout size = {}, align = {}", layout.size(), layout.align());
+
+        if layout.align() == 8 {
+            assert_eq!(self.vec_start + self.vec_used, ptr + layout.size());
+            self.vec_used -= layout.size();
         }
     } 
 
