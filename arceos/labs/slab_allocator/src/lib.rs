@@ -247,7 +247,6 @@ impl Heap {
                 }
             }
         } else if layout.size() <= 2420 && layout.size() >= 2048 {
-            info!("choose allocator layout size = {}", layout.size());
             unsafe {
                 update_temp(layout.size());
             }
